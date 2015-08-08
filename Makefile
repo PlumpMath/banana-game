@@ -18,6 +18,9 @@ all: .cabal-sandbox
 	cabal install $(INSTALLOPTS) --ghc-options=$(GHCOPTS) --only-dependencies
 
 clean:
+	cabal clean
+
+delete:
 	cabal sandbox delete
 
 run:

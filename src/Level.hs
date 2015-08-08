@@ -5,19 +5,28 @@
 -- The level is described by a grid where each grid can have 0--4 "doors",
 -- one on each cardinal direction.
 module Level (GridDesc
+             , blocks
+             , gridWidth
+             , gridHeight
+             , OpenDir
+             , Block
+             , northOpen
+             , southOpen
+             , eastOpen
+             , westOpen
+             , openDirToBlock
+             , blockToOpenDir
+             , createClosedGrid
+             , toASCII
              , dfsMaze) where
 
 import qualified Data.Map as M
 import qualified Data.Set as S
-import Data.Ratio (Ratio)
-import Data.Natural 
 import Data.Maybe (isJust
-                  , fromJust
-                  , catMaybes)
+                  , fromJust)
 import Control.Monad.Random (MonadRandom
                             , getRandomR)
 import Control.Monad (guard)
-import System.Random (StdGen)
 
 -- A block can be open in any one of the cardinal directions. If the block
 -- is open in a direction, then the corresponding record will be true.
