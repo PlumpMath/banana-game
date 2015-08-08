@@ -45,6 +45,7 @@ import Level (GridDesc
              , gridHeight
              , blocks
              , dfsMaze)
+import World (World)
 
 -- Compile time option to disable debugging messages 
 debugEnable :: Bool

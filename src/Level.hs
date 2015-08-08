@@ -18,6 +18,9 @@ module Level (GridDesc
              , blockToOpenDir
              , createClosedGrid
              , toASCII
+             , getPointsWithin
+             , testGrid1
+             , testGrid2
              , dfsMaze) where
 
 import qualified Data.Map as M
@@ -374,6 +377,22 @@ revDir South = North
 revDir East = West
 revDir West = East
 
+-- Given a point on the grid, and length in the x and y direction, return
+-- all the points within the x and y lengths (including the passed point)
+getPointsWithin :: (Int, Int) -- Point on grid
+                   -> Int     -- X length 
+                   -> Int     -- Y length 
+                   -> GridDesc -- Grid to examine
+                   -> [(Int, Int)]
+getPointsWithin (posX, posY) xLen yLen gr = do
+    -- Any value from -xLen to xLen may be added to the x-coordinate
+    x <- pure (+) <*> [-xLen .. xLen] <*> pure posX
+    -- And similarly for the y coordinate
+    y <- pure (+) <*> [-yLen .. yLen] <*> pure posY
+    -- The point must be inbounds 
+    guard $ pointInBounds gr (x, y) 
+    return (x, y)
+
 -- Convert the passed grid to an ascii map
 toASCII :: GridDesc -> String
 toASCII grd = prefix ++ toASCII' grd (h - 1) "" ++ bottomLine
@@ -421,3 +440,130 @@ toASCIIVert' gr x y s
                           else "|"
           nextStr = s ++ eastStr ++ westStr
           w = gridWidth gr
+
+-- Some pre-created grids for testing
+testGrid1 :: GridDesc 
+testGrid1 = GridDesc {blocks = M.fromList [((0,0),Open'N)
+                                        ,((0,1),Open'NSE)
+                                        ,((0,2),Open'NS)
+                                        ,((0,3),Open'NSE)
+                                        ,((0,4),Open'NS)
+                                        ,((0,5),Open'NS)
+                                        ,((0,6),Open'SE)
+                                        ,((0,7),Open'NE)
+                                        ,((0,8),Open'NSE)
+                                        ,((0,9),Open'SE)
+                                        ,((1,0),Open'NE)
+                                        ,((1,1),Open'SW)
+                                        ,((1,2),Open'N)
+                                        ,((1,3),Open'NSW)
+                                        ,((1,4),Open'S)
+                                        ,((1,5),Open'NE)
+                                        ,((1,6),Open'SW)
+                                        ,((1,7),Open'W)
+                                        ,((1,8),Open'EW)
+                                        ,((1,9),Open'EW)
+                                        ,((2,0),Open'NEW)
+                                        ,((2,1),Open'NS)
+                                        ,((2,2),Open'NS)
+                                        ,((2,3),Open'NS)
+                                        ,((2,4),Open'SE)
+                                        ,((2,5),Open'NW)
+                                        ,((2,6),Open'NS)
+                                        ,((2,7),Open'NS)
+                                        ,((2,8),Open'SW)
+                                        ,((2,9),Open'EW)
+                                        ,((3,0),Open'EW)
+                                        ,((3,1),Open'N)
+                                        ,((3,2),Open'SE)
+                                        ,((3,3),Open'NE)
+                                        ,((3,4),Open'NSW)
+                                        ,((3,5),Open'NSE)
+                                        ,((3,6),Open'NS)
+                                        ,((3,7),Open'S)
+                                        ,((3,8),Open'NE)
+                                        ,((3,9),Open'SW)
+                                        ,((4,0),Open'EW)
+                                        ,((4,1),Open'NE)
+                                        ,((4,2),Open'SW)
+                                        ,((4,3),Open'NW)
+                                        ,((4,4),Open'SE)
+                                        ,((4,5),Open'EW)
+                                        ,((4,6),Open'NE)
+                                        ,((4,7),Open'NS)
+                                        ,((4,8),Open'SW)
+                                        ,((4,9),Open'E)
+                                        ,((5,0),Open'EW)
+                                        ,((5,1),Open'NW)
+                                        ,((5,2),Open'SE)
+                                        ,((5,3),Open'NE)
+                                        ,((5,4),Open'SW)
+                                        ,((5,5),Open'EW)
+                                        ,((5,6),Open'NW)
+                                        ,((5,7),Open'NS)
+                                        ,((5,8),Open'NS)
+                                        ,((5,9),Open'SEW)
+                                        ,((6,0),Open'NW)
+                                        ,((6,1),Open'NS)
+                                        ,((6,2),Open'SEW)
+                                        ,((6,3),Open'NW)
+                                        ,((6,4),Open'SE)
+                                        ,((6,5),Open'NEW)
+                                        ,((6,6),Open'NS)
+                                        ,((6,7),Open'NS)
+                                        ,((6,8),Open'S)
+                                        ,((6,9),Open'EW)
+                                        ,((7,0),Open'NE)
+                                        ,((7,1),Open'S)
+                                        ,((7,2),Open'EW)
+                                        ,((7,3),Open'E)
+                                        ,((7,4),Open'EW)
+                                        ,((7,5),Open'W)
+                                        ,((7,6),Open'NE)
+                                        ,((7,7),Open'SE)
+                                        ,((7,8),Open'NE)
+                                        ,((7,9),Open'SW)
+                                        ,((8,0),Open'NEW)
+                                        ,((8,1),Open'SE)
+                                        ,((8,2),Open'EW)
+                                        ,((8,3),Open'EW)
+                                        ,((8,4),Open'NW)
+                                        ,((8,5),Open'NS)
+                                        ,((8,6),Open'SW)
+                                        ,((8,7),Open'EW)
+                                        ,((8,8),Open'EW)
+                                        ,((8,9),Open'E)
+                                        ,((9,0),Open'W)
+                                        ,((9,1),Open'NW)
+                                        ,((9,2),Open'NSW)
+                                        ,((9,3),Open'NSW)
+                                        ,((9,4),Open'NS)
+                                        ,((9,5),Open'NS)
+                                        ,((9,6),Open'S)
+                                        ,((9,7),Open'NW)
+                                        ,((9,8),Open'NSW)
+                                        ,((9,9),Open'SW)]
+                  
+                , gridWidth = 10
+                , gridHeight = 10}
+
+testGrid2 :: GridDesc
+testGrid2 = GridDesc {blocks = M.fromList [((0,0),Open'NE)
+                                          ,((0,1),Open'NS)
+                                          ,((0,2),Open'NS)
+                                          ,((0,3),Open'SE)
+                                          ,((1,0),Open'NEW)
+                                          ,((1,1),Open'S)
+                                          ,((1,2),Open'NE)
+                                          ,((1,3),Open'SEW)
+                                          ,((2,0),Open'NEW)
+                                          ,((2,1),Open'SE)
+                                          ,((2,2),Open'EW)
+                                          ,((2,3),Open'EW)
+                                          ,((3,0),Open'W)
+                                          ,((3,1),Open'NW)
+                                          ,((3,2),Open'SW)
+                                          ,((3,3),Open'W)
+                                          ]
+                                          , gridWidth = 4
+                                          , gridHeight = 4}
