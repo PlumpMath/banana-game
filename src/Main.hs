@@ -23,15 +23,22 @@ import Data.Maybe (fromJust, isNothing)
 --import qualified Data.Map as M
 -- import Data.Text (pack)
 --import Control.Applicative ((<$>))
-import Reactive.Banana.Frameworks (newAddHandler
-                                  , actuate
-                                  , compile
-                                  , fromAddHandler
-                                  , Frameworks
-                                  , reactimate
-                                  , AddHandler)
-import Reactive.Banana.Switch (Moment)
---import qualified Data.Set as S
+--import Reactive.Banana.Frameworks (newAddHandler
+--                                  , actuate
+--                                  , compile
+--                                  , fromAddHandler
+--                                  , Frameworks
+--                                  , reactimate
+--                                  , reactimate'
+--                                  , changes
+--                                  , AddHandler
+--                                  )
+--import Reactive.Banana.Switch (Moment)
+--import Reactive.Banana.Combinators (Behavior
+--                                   , stepper
+--                                   , Event (..)
+--                                   , accumB)
+import qualified Data.Set as S
 
 import Level (
              --GridDesc
@@ -50,7 +57,13 @@ import Level (
 import World (World
              , fromGridDesc
              , fromGridDescWithPlPos
+             , playerPos
              , worldToPicture)
+
+playerXVel :: Double
+playerXVel = 0.5
+playerYVel :: Double
+playerYVel = 0.5
 
 -- Compile time option to disable debugging messages 
 debugEnable :: Bool
@@ -88,10 +101,10 @@ errorCallback err description = hPutStrLn stderr msg
 -- This function takes an aditional `fire` paramenter which is a function
 -- a -> IO (). Items passed to this function are sent to the banana event
 -- handler
-bananaKeyCallback :: ((GLFW.Key, GLFW.KeyState) -> IO ()) 
-                     -> GLFW.KeyCallback
-bananaKeyCallback fire _ key _ st _ = do
-    fire (key, st)
+--bananaKeyCallback :: ((GLFW.Key, GLFW.KeyState) -> IO ()) 
+--                     -> GLFW.KeyCallback
+--bananaKeyCallback fire _ key _ st _ = do
+--    fire (key, st)
 
 -- Return the set of all pressed down keys from the SDL event queue
 --getEvents :: IO (S.Set SDL.Keysym)
@@ -156,29 +169,33 @@ main = do
     -- The AddHandler can be processed in the NetworkDescription monad to
     -- create an event stream. Items can be passed to fireKey in the IO
     -- monad to create events
-    (addKeyEvent, fireKey) <- newAddHandler
-    debugMsg "[DEBUG] Added banana key handler"
+    --(addKeyEvent, fireKey) <- newAddHandler
+    --debugMsg "[DEBUG] Added banana key handler"
+    -- Similarly, create an event handler to communicate the amount of time
+    -- passed 
+    --(timeEvent, fireTime) <- newAddHandler
 
     -- Setup a key callback. The key callback will create a reactive-banana
     -- event with incoming key strokes
-    GLFW.setKeyCallback win (Just $ bananaKeyCallback fireKey)
+    --GLFW.setKeyCallback win (Just $ bananaKeyCallback fireKey)
 
     -- Create the banana network 
-    net <- compile $ makeNetworkDescription addKeyEvent win
+    --net <- compile $ makeNetworkDescription addKeyEvent timeEvent win
 
     -- Start the banana network
-    actuate net
+    --actuate net
 
     randG <- getStdGen
     --let r = evalRand (myFunc 1 2 3) g :: Double
     let gd = evalRand (dfsMaze 10 10) randG
     (width, height) <- GLFW.getFramebufferSize win
     --let pic = gridDescToPic (width, height) gd
-    let pic = worldToPicture (width, height) 
-                             (gridWidth gd, gridHeight gd) 
-                             (fromGridDescWithPlPos gd (5, 5))
+    --let pic = worldToPicture (width, height) 
+    --                         (gridWidth gd, gridHeight gd) 
+    --                         (fromGridDescWithPlPos gd (5, 5))
     -- Enter the GLFW loop
-    mainLoop s pic win
+    --mainLoop fireTime s pic win
+    mainLoop s win (fromGridDesc gd)
 
     -- Destroy the window since it is no longer being used
     GLFW.destroyWindow win
@@ -187,8 +204,79 @@ main = do
     debugMsg "[DEBUG] terminated GLFW, exiting"
     exitSuccess
 
-mainLoop :: Gloss.State -> Gloss.Picture -> GLFW.Window -> IO ()
-mainLoop gs pic win = do
+-- Query the current state of all the relevant keys. Keys will only be included
+-- in the resulting set if they are pressed or repeating
+getRelevantKeys :: GLFW.Window -> IO (S.Set (GLFW.Key))
+getRelevantKeys win = do
+    keyState <- mapM (GLFW.getKey win) keys
+    let ks = filter (isPressed) $ zip keys keyState
+    return $ S.fromList (map fst ks)
+  where keys = [GLFW.Key'W
+               , GLFW.Key'A
+               , GLFW.Key'S
+               , GLFW.Key'D
+               , GLFW.Key'Escape
+               ]
+        isPressed :: (GLFW.Key, GLFW.KeyState) -> Bool
+        isPressed (_, s) = if s == GLFW.KeyState'Pressed 
+                              || s == GLFW.KeyState'Repeating
+                                then True
+                                else False
+
+-- If the exit button is in the passed set of keys then fire an exit event
+setCloseIfESC :: GLFW.Window -> S.Set (GLFW.Key) -> IO ()
+setCloseIfESC win s = do
+    GLFW.setWindowShouldClose win (S.member GLFW.Key'Escape s) 
+
+-- Given the set of currently pressed keys return the current velocity in the
+-- X direction
+getXVel :: S.Set (GLFW.Key) -> Double
+getXVel s = if (S.member GLFW.Key'A s)
+               && (not $ S.member GLFW.Key'D s)
+               then negate playerXVel
+               else if (S.member GLFW.Key'D s)
+                      && (not $ S.member GLFW.Key'A s)
+                then playerXVel
+                else 0
+
+-- Given the set of currently pressed keys return the current velocity in the
+-- Y direction
+getYVel :: S.Set (GLFW.Key) -> Double
+getYVel s = if (S.member GLFW.Key'S s)
+               && (not $ S.member GLFW.Key'W s)
+               then (negate playerYVel)
+               else if (S.member GLFW.Key'W s)
+                      && (not $ S.member GLFW.Key'S s)
+                then playerYVel
+                else 0
+
+
+--mainLoop :: (Double -> IO ()) -- Event stream generation for time
+mainLoop :: Gloss.State 
+            -> GLFW.Window 
+            -> World
+            -> IO ()
+--mainLoop fireTime gs pic win = do
+mainLoop gs win world = do
+    keys <- getRelevantKeys win
+    setCloseIfESC win keys
+    -- Get the time since we last were here. Set the time to zero to record the
+    -- total time the main-loop takes to execute
+    mayTimeD <- GLFW.getTime
+    GLFW.setTime 0 
+    -- Not too sure but it seems the time returns nothing when the time is
+    -- zero. This would mean no time has passed yet so re-run the loop to waste
+    -- some time
+    --when (isNothing mayTimeD) $ mainLoop fireTime gs pic win
+    let timeD = fromJust mayTimeD
+    -- Update the world based on the current stuff
+    let (posX, posY) = playerPos world
+    let xVel = getXVel keys
+    let yVel = getYVel keys
+    let newPos = (posX + timeD * xVel, posY + timeD * yVel)
+    let world2 = world { playerPos = newPos }
+
+    --fireTime timeD
     -- The viewport needs the framebuffer size
     (width, height) <- GLFW.getFramebufferSize win
     -- Set the viewport to be the entire size of the window
@@ -205,13 +293,8 @@ mainLoop gs pic win = do
     -- Use vsync
     GLFW.swapInterval 1
     --Gloss.displayPicture (width, height) Gloss.white gs 1.0 pic2
-    Gloss.displayPicture (width, height) Gloss.white gs 1.0 pic
-
-    -- Draw some stuff
-    --renderPrimitive Lines $ do
-    --  vertex (Vertex3 (1.0 :: GLfloat) 1.0 0)
-    --  vertex (Vertex3 (0.0 :: GLfloat) 0.0 0)  
-
+    let curFrame = worldToPicture (width, height) (3, 3) world2
+    Gloss.displayPicture (width, height) Gloss.white gs 1.0 curFrame
 
     -- GLFW has a front and back buffer. Since we have finished our
     -- rendering for this loop, swap the current buffer to the front and
@@ -219,23 +302,69 @@ mainLoop gs pic win = do
     GLFW.swapBuffers win
     GLFW.pollEvents
     close <- (GLFW.windowShouldClose win) 
-    unless close $ mainLoop gs pic win
+    unless close $ mainLoop gs win world2
+
 
 -- The first argument is an add handler attached to GLFW key press events
 -- The second argument is the window being managed
-makeNetworkDescription :: Frameworks t
-                       => AddHandler (GLFW.Key, GLFW.KeyState)
-                       -> GLFW.Window
-                       -> Moment t ()
-makeNetworkDescription keyH win = do
-    eKeys <- fromAddHandler keyH
-    let 
-        ek = eKeys
-        eEsc = pressedESCKey <$> ek
-    reactimate $ fmap print ek
-    reactimate $ fmap (GLFW.setWindowShouldClose win) eEsc
-  where 
-        pressedESCKey :: (GLFW.Key, GLFW.KeyState) -> Bool
-        pressedESCKey (k, s) = k == GLFW.Key'Escape
-                               && (s == GLFW.KeyState'Pressed
-                                  || s == GLFW.KeyState'Repeating)
+-- makeNetworkDescription :: Frameworks t => 
+--                        AddHandler (GLFW.Key, GLFW.KeyState)
+--                        -> AddHandler (Double)
+--                        -> GLFW.Window
+--                        -> Moment t ()
+-- makeNetworkDescription keyH timeH win = do
+--     eKeys <- fromAddHandler keyH
+--     eTDelta <- fromAddHandler timeH
+--     let 
+--         ek = eKeys
+--         --eXPlayerPos = xVelFromKey <$> ek
+--         --eYPlayerPos = yVelFromKey <$> ek
+--         eEsc = pressedESCKey <$> ek
+--         bTime = stepper 0.0 eTDelta
+--         bMoveLeft = stepper False $ pressedKey GLFW.Key'A <$> ek
+--         bMoveRight = stepper False $ pressedKey GLFW.Key'D <$> ek
+--         bMoveUp = stepper False $ pressedKey GLFW.Key'W <$> ek
+--         bMoveDown = stepper False $ pressedKey GLFW.Key'S <$> ek
+--         bXVel = xVelFromKeys <$> bMoveLeft <*> bMoveRight
+--         bYVel = yVelFromKeys <$> bMoveUp <*> bMoveDown
+--         bXPosDelta = (*) <$> bTime <*> bXVel 
+--         -- X position behavior. Updated by the network. Initialized to zero
+--         --bXPlayerPos :: Behavior t Double
+--         --bXPlayerPos = accumB 0 eXPlayerPos
+--         ---- Y position behavior. Updated by the network
+--         --bYPlayerPos :: Behavior t Double
+--         --bYPlayerPos = accumB 0 eYPlayerPos
+--     eXVelChanged <- changes bXVel
+--     eYVelChanged <- changes bYVel
+--     eXPosDelta <- changes bXPosDelta
+--     reactimate $ fmap print ek
+--     reactimate' $ fmap (\n -> putStrLn ("XVel: " ++ show n))
+--                <$> eXVelChanged
+--     reactimate' $ fmap (\n -> putStrLn ("YVel: " ++ show n))
+--                <$> eYVelChanged
+--     reactimate' $ fmap (\n -> putStrLn ("Delta X: " ++ show n))
+--                <$> eXPosDelta
+--     reactimate $ fmap (GLFW.setWindowShouldClose win) eEsc
+--   where 
+--         -- Given the left and right key state return the X velocity
+--         xVelFromKeys :: Bool -> Bool -> Double
+--         xVelFromKeys l r = if l && (not r) then -0.1
+--                                 else if (not l) && r then 0.1
+--                                 else 0
+--         yVelFromKeys :: Bool -> Bool -> Double
+--         yVelFromKeys u d = if u && (not d) then 0.1
+--                                 else if (not u) && d then -0.1
+--                                 else 0
+--         pressedKey :: GLFW.Key -> (GLFW.Key, GLFW.KeyState) -> Bool
+--         pressedKey key (k, s) = k == key
+--                                && (s == GLFW.KeyState'Pressed
+--                                    || s == GLFW.KeyState'Repeating)
+--         pressedESCKey :: (GLFW.Key, GLFW.KeyState) -> Bool
+--         pressedESCKey = pressedKey (GLFW.Key'Escape)
+--         xPosDeltaEv :: Event t Double -- Change in time
+--                        -> Event t (GLFW.Key, GLFW.KeyState) -- Pressed key
+--                        -> Event t (Double -> Double)
+--         xPosDeltaEv time ks = fmap (+) delta
+--           where vel = fmap (\b -> if True then 0.1 else 0)
+--                            (pressedKey GLFW.Key'D <$> ks)
+--                 delta =  (*) <$> vel <*> time 

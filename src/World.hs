@@ -20,6 +20,7 @@ import Level (GridDesc
              , blocksToPic2
              )
 
+import Data.Monoid ((<>))
 import qualified Graphics.Gloss as Gloss
 import qualified Data.Map as M
 
@@ -60,7 +61,7 @@ worldToPicture :: (Int, Int) -- Size of framebuffer
                                 -- changes the "zoom level"
                   -> World
                   -> Gloss.Picture
-worldToPicture (fbW, fbH) (wW, wH) world = picTrans
+worldToPicture (fbW, fbH) (wW, wH) world = picTrans <> player
   where -- The width of a block in framebuffer coordinates (pixels). The block
         -- width depends on the size of the world to map to the framebuffer
         -- (`(w,h)`). For example, if it is (1,1) then we render a box in world
@@ -100,6 +101,8 @@ worldToPicture (fbW, fbH) (wW, wH) world = picTrans
         -- Draw all the blocks with the bottom left corner at (0,)
         pic = blocksToPic2 (fbBlockWidth, fbBlockHeight) 
                            occludedBlocks
+        -- Draw a circle for the player
+        player = Gloss.circle ((fromIntegral fbBlockWidth) * (0.1))
         -- Translate the picture so it is centered on the player. This requires
         -- translating the players current position into framebuffer
         -- cooridnates and then translating
