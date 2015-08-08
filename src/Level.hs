@@ -19,8 +19,12 @@ module Level (GridDesc
              , createClosedGrid
              , toASCII
              , getPointsWithin
+             , getPointsAndDirWithin
              , testGrid1
              , testGrid2
+             , gridDescToPic
+             , blocksToPic
+             , blocksToPic2
              , dfsMaze) where
 
 import qualified Data.Map as M
@@ -30,6 +34,8 @@ import Data.Maybe (isJust
 import Control.Monad.Random (MonadRandom
                             , getRandomR)
 import Control.Monad (guard)
+import Data.Monoid ((<>))
+import qualified Graphics.Gloss as Gloss
 
 -- A block can be open in any one of the cardinal directions. If the block
 -- is open in a direction, then the corresponding record will be true.
@@ -392,6 +398,147 @@ getPointsWithin (posX, posY) xLen yLen gr = do
     -- The point must be inbounds 
     guard $ pointInBounds gr (x, y) 
     return (x, y)
+
+-- Same as getPointsWithin but returns the open direction associated with
+-- each point
+getPointsAndDirWithin :: (Int, Int) -- Point on grid
+                         -> Int     -- X length 
+                         -> Int     -- Y length 
+                         -> GridDesc -- Grid to examine
+                         -> M.Map (Int, Int) OpenDir
+getPointsAndDirWithin pos xlen ylen gr = M.filterWithKey (keyInSet ps) bs
+    where ps = S.fromList $ getPointsWithin pos xlen ylen gr
+          bs = blocks gr
+          keyInSet :: S.Set (Int, Int) -> (Int, Int) -> a -> Bool
+          keyInSet s p _ = S.member p s
+
+
+-- Convert the passed GridDesc to a picture with the passed width and
+-- height. The picture will be centered in the framebuffer.
+--
+-- Note: (0,0) is in the center of the screen
+--       (width, height) is the top right corner
+--       (-width, -height) is the bottom left corner
+gridDescToPic :: (Int, Int) -> GridDesc -> Gloss.Picture
+gridDescToPic fb@(fbW, fbH) gr = trans $ blocksToPic fb gridSize bs
+  where gridSize = (gridWidth gr, gridHeight gr)
+        bs = blocks gr
+        trans = Gloss.Translate (negate (fromIntegral fbW) / 2)
+                                (negate (fromIntegral fbH) / 2)
+--gridDescToPic (w, h) gd = trans $ M.foldrWithKey 
+--                              (picAndTrans (w, h) (blockWidth, blockHeight)) 
+--                              Gloss.blank 
+--                              (blocks gd)
+--  where -- The width of each block is the width of the screen divided by the
+--        -- number of blocks
+--        blockWidth :: Int
+--        --blockWidth = (fromIntegral w) / (fromIntegral . gridWidth $ gd)
+--        blockWidth = w `quot` (gridWidth gd)
+--        blockHeight :: Int
+--        --blockHeight = (fromIntegral h) / (fromIntegral . gridHeight $ gd)
+--        blockHeight = h `quot` (gridHeight gd)
+--        -- All the previous drawing is done with the bottom left corner as
+--        -- (0,0). Gloss uses the origin as the center of the screen.
+--        trans = Gloss.Translate (negate (fromIntegral w) / 2)
+--                                (negate (fromIntegral h) / 2)
+
+-- Convert the passed map of blocks to a picture. The bottom left corner of
+-- the picture will be at point (0,0)
+blocksToPic :: (Int, Int) -- Framebuffer width and height
+               -> (Int, Int) -- Grid width
+               -> M.Map (Int, Int) OpenDir -- Blocks in grid
+               -> Gloss.Picture
+blocksToPic fb@(fbW, fbH) (gW, gH) bs = blocksToPic2 (blockWidth, blockHeight) bs
+  where -- The width of each block is the width of the screen divided by the
+        -- number of blocks
+        blockWidth :: Int
+        blockWidth = fbW `quot` gW
+        blockHeight :: Int
+        blockHeight = fbH `quot` gH
+--blocksToPic (fbW, fbH) (gW, gH) bs = 
+--    trans $ M.foldrWithKey 
+--              (picAndTrans (fbW, fbH) (blockWidth, blockHeight)) 
+--              Gloss.blank 
+--              bs
+--  where -- The width of each block is the width of the screen divided by the
+--        -- number of blocks
+--        blockWidth :: Int
+--        blockWidth = fbW `quot` gW
+--        blockHeight :: Int
+--        blockHeight = fbH `quot` gH
+--        -- All the previous drawing is done with the bottom left corner as
+--        -- (0,0). Gloss uses the origin as the center of the screen.
+--        trans = Gloss.Translate (negate (fromIntegral fbW) / 2)
+--                                (negate (fromIntegral fbH) / 2)
+
+-- Same as blocksToPic2 but allows the width and height of each block in
+-- the grid to be directly specified. This allows for blocks to be drawn
+-- beyond the bounds of the framebuffer.
+blocksToPic2 :: (Int, Int) -- Block size (width, height)
+                -> M.Map (Int, Int) OpenDir -- Blocks in grid
+                -> Gloss.Picture
+blocksToPic2 (blockWidth, blockHeight) bs = 
+    M.foldrWithKey 
+              (picAndTrans (blockWidth, blockHeight)) 
+              Gloss.blank 
+              bs
+  where -- The width of each block is the width of the screen divided by the
+        -- number of blocks
+        --blockWidth :: Int
+        --blockWidth = fbW `quot` gW
+        --blockHeight :: Int
+        --blockHeight = fbH `quot` gH
+        -- All the previous drawing is done with the bottom left corner as
+        -- (0,0). Gloss uses the origin as the center of the screen.
+        --trans = Gloss.Translate (negate (fromIntegral fbW) / 2)
+        --                        (negate (fromIntegral fbH) / 2)
+
+
+-- Given a point in GridDesc and its associated open direction, updated
+-- the passed picture to hold the drawing of the block
+picAndTrans :: (Int, Int) -- Width and height of individual block
+               -> (Int, Int) -- Block position from GridDesc
+               -> OpenDir 
+               -> Gloss.Picture 
+               -> Gloss.Picture
+picAndTrans (bw, bh) (x, y) dir pic = pic <> posBl
+  where 
+        bl = blockToPic (bw, bh) (openDirToBlock dir)
+        --bl = Gloss.Circle 10.0
+        -- Need to shift the block from the origin to its proper position
+        posBl = Gloss.translate 
+                    (fromIntegral $ bw * x) 
+                    (fromIntegral $ bh * y) 
+                    --((fromIntegral x) / (fromIntegral w))
+                    --((fromIntegral y) / (fromIntegral h))
+                    bl
+
+-- Create a picture from a block. This draws the block with (0,0) as the lower
+-- left corner. The passed Ints are the width and height of the block
+blockToPic :: (Int, Int) -> Block -> Gloss.Picture
+blockToPic (w, h) b = northWall <> southWall <> eastWall <> westWall
+  where northWall = if northOpen b 
+                      then Gloss.blank 
+                      else Gloss.color 
+                           Gloss.black 
+                           (Gloss.line [ (0, hf), (wf,  hf) ])
+        southWall = if southOpen b 
+                      then Gloss.blank
+                      else Gloss.color 
+                           Gloss.black 
+                           (Gloss.line [ (0, 0), (wf,  0) ])
+        eastWall = if eastOpen b 
+                      then Gloss.blank
+                      else Gloss.color 
+                           Gloss.black 
+                           (Gloss.line [ (wf, 0), (wf,  hf) ])
+        westWall = if westOpen b 
+                      then Gloss.blank
+                      else Gloss.color 
+                           Gloss.black 
+                           (Gloss.line [ (0, 0), (0,  hf) ])
+        wf = fromIntegral w
+        hf = fromIntegral h
 
 -- Convert the passed grid to an ascii map
 toASCII :: GridDesc -> String
