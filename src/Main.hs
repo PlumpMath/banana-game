@@ -40,30 +40,26 @@ import Data.Maybe (fromJust, isNothing)
 --                                   , accumB)
 import qualified Data.Set as S
 
-import Level (
-             --GridDesc
-             -- openDirToBlock
-             -- , OpenDir
-             -- , Block
-             -- , northOpen
-             -- , southOpen
-             -- , eastOpen
-             -- , westOpen
-             -- , blocks
-             gridWidth
+import Level (gridWidth
              , gridHeight
              , gridDescToPic
-             , dfsMaze)
+             , dfsMaze
+             )
+
 import World (World
              , fromGridDesc
              , fromGridDescWithPlPos
              , playerPos
-             , worldToPicture)
+             , worldToPicture
+             , worldTilesToPicture
+             , updatePlayerPos
+             , inWall
+             )
 
 playerXVel :: Double
-playerXVel = 0.5
+playerXVel = 1.5
 playerYVel :: Double
-playerYVel = 0.5
+playerYVel = 1.5
 
 -- Compile time option to disable debugging messages 
 debugEnable :: Bool
@@ -195,7 +191,7 @@ main = do
     --                         (fromGridDescWithPlPos gd (5, 5))
     -- Enter the GLFW loop
     --mainLoop fireTime s pic win
-    mainLoop s win (fromGridDesc gd)
+    mainLoop s win (fromGridDescWithPlPos gd (0.5, 0.5))
 
     -- Destroy the window since it is no longer being used
     GLFW.destroyWindow win
@@ -274,7 +270,13 @@ mainLoop gs win world = do
     let xVel = getXVel keys
     let yVel = getYVel keys
     let newPos = (posX + timeD * xVel, posY + timeD * yVel)
-    let world2 = world { playerPos = newPos }
+    let walRes = inWall world newPos
+    let upStr = case walRes of 
+                  (Nothing, Nothing) -> ""
+                  _ -> show walRes
+    when (not $ null upStr) $ putStrLn upStr
+    --let world2 = world { playerPos = newPos }
+    let world2 = updatePlayerPos world newPos
 
     --fireTime timeD
     -- The viewport needs the framebuffer size
@@ -293,7 +295,8 @@ mainLoop gs win world = do
     -- Use vsync
     GLFW.swapInterval 1
     --Gloss.displayPicture (width, height) Gloss.white gs 1.0 pic2
-    let curFrame = worldToPicture (width, height) (3, 3) world2
+    --let curFrame = worldToPicture (width, height) (3, 3) world2
+    let curFrame = worldTilesToPicture (width, height) (3, 3) world2
     Gloss.displayPicture (width, height) Gloss.white gs 1.0 curFrame
 
     -- GLFW has a front and back buffer. Since we have finished our

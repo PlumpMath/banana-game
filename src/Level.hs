@@ -5,6 +5,7 @@
 -- The level is described by a grid where each grid can have 0--4 "doors",
 -- one on each cardinal direction.
 module Level (GridDesc
+             , CardDir (..)
              , blocks
              , gridWidth
              , gridHeight
