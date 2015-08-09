@@ -9,7 +9,7 @@ module Level (GridDesc
              , blocks
              , gridWidth
              , gridHeight
-             , OpenDir
+             , OpenDir (..)
              , Block
              , northOpen
              , southOpen

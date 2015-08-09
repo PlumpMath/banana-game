@@ -3,6 +3,7 @@ import qualified Graphics.Gloss as Gloss
 import qualified Graphics.Gloss.Rendering as Gloss
 --import Graphics.Rendering.OpenGL.Raw -- as gl*
 --import System.Mem (performGC)
+import Data.Monoid ((<>))
 import Control.Monad (when
                      , unless)
 import Control.Monad.Random (evalRand
@@ -185,10 +186,7 @@ main = do
     --let r = evalRand (myFunc 1 2 3) g :: Double
     let gd = evalRand (dfsMaze 10 10) randG
     (width, height) <- GLFW.getFramebufferSize win
-    --let pic = gridDescToPic (width, height) gd
-    --let pic = worldToPicture (width, height) 
-    --                         (gridWidth gd, gridHeight gd) 
-    --                         (fromGridDescWithPlPos gd (5, 5))
+
     -- Enter the GLFW loop
     --mainLoop fireTime s pic win
     mainLoop s win (fromGridDescWithPlPos gd (0.5, 0.5))
@@ -275,12 +273,11 @@ mainLoop gs win world = do
                   (Nothing, Nothing) -> ""
                   _ -> show walRes
     when (not $ null upStr) $ putStrLn upStr
-    --let world2 = world { playerPos = newPos }
     let world2 = updatePlayerPos world newPos
 
     --fireTime timeD
-    -- The viewport needs the framebuffer size
     (width, height) <- GLFW.getFramebufferSize win
+    debugMsg $ "[DEBUG] Framebuffer size: " ++ (show (width, height))
     -- Set the viewport to be the entire size of the window
     viewport $= (Position 0 0, Size (fromIntegral width) (fromIntegral height))
     -- Change to orthogonal projection
@@ -296,8 +293,10 @@ mainLoop gs win world = do
     GLFW.swapInterval 1
     --Gloss.displayPicture (width, height) Gloss.white gs 1.0 pic2
     --let curFrame = worldToPicture (width, height) (3, 3) world2
+    --let curFrame = worldTilesToPicture height (3, 3) world2
     let curFrame = worldTilesToPicture (width, height) (3, 3) world2
-    Gloss.displayPicture (width, height) Gloss.white gs 1.0 curFrame
+    --let curFrameVec = worldToPicture height (3, 3) world2
+    Gloss.displayPicture (width, height) Gloss.white gs 1.0 (curFrame)
 
     -- GLFW has a front and back buffer. Since we have finished our
     -- rendering for this loop, swap the current buffer to the front and

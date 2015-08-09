@@ -41,6 +41,7 @@ tilesPerBlock = 10
 
 -- The entire world is made up of tiles which are either solid or empty
 data Tile = Solid | Empty
+          deriving Show
 
 data World = World { 
                      -- The  layout of all the blocks making up the level
@@ -217,9 +218,10 @@ getWallPoints xOff yOff dir sz =
                   y <- [yStart .. yEnd]
                   return (x, y)
   where xStart = xOff
-        xEnd = sz + xOff
+        -- Need to subtract one since points are zero indexed
+        xEnd = sz + xOff - 1
         yStart = yOff
-        yEnd = sz + yOff
+        yEnd = sz + yOff - 1
 
 -- Given a map of all the tiles in the world, render the block at the passed
 -- coordinates. The coordinates of the block should be in block (not tile)
@@ -275,7 +277,8 @@ blocksToPicTiles sz tm bls = mconcat $ map (blockToPicTiles sz tm) bls
 
 
 -- Render the tiles of the world 
-worldTilesToPicture :: (Int, Int) -- Size of framebuffer
+--worldTilesToPicture :: Int      -- Block height in framebuffer pixels
+worldTilesToPicture :: (Int, Int)      -- Framebuffer size
                   -> (Int, Int) -- Size of box around playerPos in world
                                 -- coordinates to draw. Everything within
                                 -- this box will be rendered within the
@@ -284,6 +287,7 @@ worldTilesToPicture :: (Int, Int) -- Size of framebuffer
                   -> World
                   -> Gloss.Picture
 worldTilesToPicture (fbW, fbH) (wW, wH) world = picTrans <> player
+--worldTilesToPicture fbH (wW, wH) world = picTrans <> player
   where -- Width of a block relative to the framebuffer. This depends on how
         -- large an area the user wants to view. Take the ceiling so we always
         -- over-draw and chop when rendering
@@ -293,6 +297,10 @@ worldTilesToPicture (fbW, fbH) (wW, wH) world = picTrans <> player
         fbBlockHeight :: Int
         fbBlockHeight = ceiling $ ((fromIntegral fbH) :: Double) 
                                   / ((fromIntegral wH) :: Double)
+        blockLength :: Int 
+        blockLength = maximum [fbBlockWidth, fbBlockHeight]
+        -- Everything is a square so width equals height
+        --fbBlockWidth = fbBlockHeight
         -- The length from the player in the X direction which we will render.
         -- Again, we take the ceiling so that we always over-render the scene
         -- rather than under render. We divide the box length by two since it
@@ -313,16 +321,20 @@ worldTilesToPicture (fbW, fbH) (wW, wH) world = picTrans <> player
                                                (levelGrid world)
         doublePairFloor :: (Double, Double) -> (Int, Int)
         doublePairFloor (d1, d2) = (floor d1, floor d2)
-        pic = blocksToPicTiles (fbBlockWidth, fbBlockHeight) 
+        --pic = blocksToPicTiles (fbBlockWidth, fbBlockHeight) 
+        pic = blocksToPicTiles (blockLength, blockLength) 
                                (tiles world) 
                                (M.keys occludedBlocks)
         -- Draw a circle for the player
-        player = Gloss.circle ((fromIntegral fbBlockWidth) * (0.1))
+        --player = Gloss.circle ((fromIntegral fbBlockWidth) * (0.1))
+        player = Gloss.circle ((fromIntegral blockLength) * (0.1))
         -- Translate the picture so it is centered on the player. This requires
         -- translating the players current position into framebuffer
         -- cooridnates and then translating
-        plFBX = (fst . playerPos $ world) * (fromIntegral fbBlockWidth)
-        plFBY = (snd . playerPos $ world) * (fromIntegral fbBlockHeight)
+        --plFBX = (fst . playerPos $ world) * (fromIntegral fbBlockWidth)
+        --plFBY = (snd . playerPos $ world) * (fromIntegral fbBlockHeight)
+        plFBX = (fst . playerPos $ world) * (fromIntegral blockLength)
+        plFBY = (snd . playerPos $ world) * (fromIntegral blockLength)
         picTrans = Gloss.Translate --(negate . realToFrac . fst $ playerPos world) 
                                    --(negate . realToFrac . snd $ playerPos world) 
                                    (realToFrac . negate $ plFBX) 
@@ -330,7 +342,8 @@ worldTilesToPicture (fbW, fbH) (wW, wH) world = picTrans <> player
                                    pic
 
 -- Render the walls in the World as vector lines.
-worldToPicture :: (Int, Int) -- Size of framebuffer
+--worldToPicture :: (Int, Int) -- Size of framebuffer
+worldToPicture :: Int           -- block width in framebuffer pixels
                   -> (Int, Int) -- Size of box around playerPos in world
                                 -- coordinates to draw. Everything within
                                 -- this box will be rendered within the
@@ -338,7 +351,8 @@ worldToPicture :: (Int, Int) -- Size of framebuffer
                                 -- changes the "zoom level"
                   -> World
                   -> Gloss.Picture
-worldToPicture (fbW, fbH) (wW, wH) world = picTrans <> player
+--worldToPicture (fbW, fbH) (wW, wH) world = picTrans <> player
+worldToPicture fbH (wW, wH) world = picTrans <> player
   where -- The width of a block in framebuffer coordinates (pixels). The block
         -- width depends on the size of the world to map to the framebuffer
         -- (`(w,h)`). For example, if it is (1,1) then we render a box in world
@@ -349,12 +363,13 @@ worldToPicture (fbW, fbH) (wW, wH) world = picTrans <> player
         -- that if we always render a little extra and not a little less. When
         -- drawing on the framebuffer, information can always be off the
         -- screen.
-        fbBlockWidth :: Int
-        fbBlockWidth = ceiling $ ((fromIntegral fbW) :: Double) 
-                                  / ((fromIntegral wW) :: Double)
+        --fbBlockWidth :: Int
+        --fbBlockWidth = ceiling $ ((fromIntegral fbW) :: Double) 
+        --                          / ((fromIntegral wW) :: Double)
         fbBlockHeight :: Int
         fbBlockHeight = ceiling $ ((fromIntegral fbH) :: Double) 
                                   / ((fromIntegral wH) :: Double)
+        fbBlockWidth = fbBlockHeight
         -- The length from the player in the X direction which we will render.
         -- Again, we take the ceiling so that we always over-render the scene
         -- rather than under render. We divide the box length by two since it
