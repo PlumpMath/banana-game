@@ -54,13 +54,14 @@ import World (World
              , worldToPicture
              , worldTilesToPicture
              , updatePlayerPos
+             , updatePlayerPosTile
              , inWall
              )
 
 playerXVel :: Double
-playerXVel = 1.5
+playerXVel = 0.5
 playerYVel :: Double
-playerYVel = 1.5
+playerYVel = 0.5
 
 -- Compile time option to disable debugging messages 
 debugEnable :: Bool
@@ -268,16 +269,11 @@ mainLoop gs win world = do
     let xVel = getXVel keys
     let yVel = getYVel keys
     let newPos = (posX + timeD * xVel, posY + timeD * yVel)
-    let walRes = inWall world newPos
-    let upStr = case walRes of 
-                  (Nothing, Nothing) -> ""
-                  _ -> show walRes
-    when (not $ null upStr) $ putStrLn upStr
-    let world2 = updatePlayerPos world newPos
+    --let world2 = updatePlayerPos world newPos
+    let world2 = updatePlayerPosTile world 0.03 0.03 newPos
 
     --fireTime timeD
     (width, height) <- GLFW.getFramebufferSize win
-    debugMsg $ "[DEBUG] Framebuffer size: " ++ (show (width, height))
     -- Set the viewport to be the entire size of the window
     viewport $= (Position 0 0, Size (fromIntegral width) (fromIntegral height))
     -- Change to orthogonal projection

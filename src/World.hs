@@ -12,6 +12,7 @@ module World (World
              , worldToPicture
              , worldTilesToPicture
              , updatePlayerPos
+             , updatePlayerPosTile
              , inWall
              ) where
 
@@ -55,6 +56,10 @@ data World = World {
                    , tiles :: M.Map (Int, Int) Tile
                    }
 
+isSolid :: Tile -> Bool
+isSolid Solid = True
+isSolid Empty = False
+
 -- Update the position of the player, scootching if it is colliding with
 -- something
 updatePlayerPos :: World -> (Double, Double) -> World
@@ -67,7 +72,115 @@ updatePlayerPos w p@(x, y) = w { playerPos = (x + xCor, y + yCor) }
         yCor = case mayYCor of
                  Nothing -> 0
                  Just d -> d
-        
+
+-- Update the players position to the passed pair assuming the player has
+-- the passed width and height (assuming the point is the center of
+-- a rectangle representing the player).
+updatePlayerPosTile :: World -> Double -> Double -> (Double, Double) -> World
+updatePlayerPosTile world w h p@(x,y) = 
+    case M.size solidOverlap of
+      0 -> world { playerPos = p }
+      _ -> world { playerPos = (xFixed, yFixed) }
+            where ks = M.keys solidOverlap
+                  -- The tiles overlapping with the point in world coordinates
+                  clipTiles :: [(Double, Double, Double, Double)]
+                  clipTiles = map tileToWorldRect ks
+                  -- Fixed pos returns the width and height of the player
+                  -- along with its location
+                  (xFixed, yFixed, _, _) = movePointsClip (x, y, w, h) clipTiles
+  where -- Get all the tiles overlapping with the point
+        solidOverlap = M.filter isSolid (onTiles world w h p)
+
+-- Given the location of a tile in tile coordinates, return its
+-- center, width, and height in world coordinates
+tileToWorldRect :: (Int, Int) -> (Double, Double, Double, Double)
+tileToWorldRect (x, y) = (worldX, worldY, tileLength, tileLength)
+  where worldX = (fromIntegral x) / (fromIntegral tilesPerBlock)
+        worldY = (fromIntegral y) / (fromIntegral tilesPerBlock)
+        tileLength :: Double
+        tileLength = 1.0 / (fromIntegral tilesPerBlock)
+
+
+
+-- Return the amount the passed point, in world coordinates, is inside of
+-- any tile in the x and y directions. The aditional double arguments are
+-- the width and height of the object (in world coordinates) centered at the passed point
+--inTile :: World -> Double -> Double -> (Double, Double) -> (Maybe Double, Maybe Double)
+--inTile world w h p@(x, y) = undefined
+--  where 
+--        -- Convert world coordinates to tile coordinates. Take the floor to
+--        -- get the 
+--        xT = x * (fromIntegral tilesPerBlock)
+--        yT = x * (fromIntegral tilesPerBlock)
+--        -- The maximum distance in the x direction from the point which the
+--        -- object can be in 
+--        xMaxT = xT + (w / 2)
+--        yMaxT = yT + (h / 2)
+--        -- Get any point within the tile the passed point is in up to any
+--        -- tile within reach of the object. Over-approximate by taking the
+--        -- floor of the current position and ceiling of the objects "reach"
+--        reachable :: [(Int, Int)]
+--        reachable = do
+--                      xReach <- [(floor xT) .. (ceiling xMaxT)]
+--                      yReach <- [(floor yT) .. (ceiling yMaxT)]
+--                      return (xReach, yReach)
+--        -- Use the tile map to determine if the coordinates are solid
+--        solidTs = filter (solid . tiles $ world) reachable
+--        adjAmount :: (Maybe Double, Maybe Double)
+--        adjAmount = case solidTs of 
+--                      [] -> (Nothing, Nothing)
+--                      l ->  -- Get the closest point to calculate the
+--                            -- smallest amount to scoot the point to make
+--                            -- it inbounds
+--                            let minPt = foldr (minXYDist p) (head solidTs) (tail solidTs)
+--        -- Compare `p` to `c`. If `c` is closer to `p` than `m`, then
+--        -- return `c`, otherwise, return `m`
+--        minXYDist :: (Double, Double) -> (Int, Int) -> (Int, Int) -> (Int, Int)
+--        minXYDist b@(bX, bY) c@(cX, cY) m@(mX, mY) = 
+--            case distC < distM of 
+--                True -> c
+--                False -> m
+--          where distC = distance b c
+--                distM = distance b m 
+--                distance :: (Double, Double) -> (Int, Int) -> Double
+--                distance (axD, ayD) (bx, by) = sqrt (xDist + yDist)
+--                  where 
+--                        --axD :: Double
+--                        --axD = fromIntegral ax
+--                        --ayD :: Double
+--                        --ayD = fromIntegral ay
+--                        bxD :: Double
+--                        bxD = fromIntegral bx
+--                        byD :: Double
+--                        byD = fromIntegral by
+--                        xDist :: Double
+--                        xDist = (bxD - axD) ** 2
+--                        yDist = (byD - ayD) ** 2
+
+-- Return those tiles overlapping with the passed point. The point is
+-- assumed to have a width and height radiating in the passed directions
+-- respectively. The distances should be passed in world coordinates
+onTiles :: World -> Double -> Double -> (Double, Double) -> M.Map (Int, Int) Tile
+onTiles world w h (x, y) = ts
+  where 
+        -- Convert world coordinates to tile coordinates. Take the floor to
+        -- get the 
+        xT = x * (fromIntegral tilesPerBlock)
+        yT = y * (fromIntegral tilesPerBlock)
+        -- The maximum distance in the x direction from the point which the
+        -- object can be in 
+        xMaxT = xT + (w / 2)
+        yMaxT = yT + (h / 2)
+        -- Get any point within the tile the passed point is in up to any
+        -- tile within reach of the object. Over-approximate by taking the
+        -- floor of the current position and ceiling of the objects "reach"
+        reachable :: [(Int, Int)]
+        reachable = do
+                      xReach <- [(floor xT) .. (ceiling xMaxT)]
+                      yReach <- [(floor yT) .. (ceiling yMaxT)]
+                      return (xReach, yReach)
+        -- Lookup all the tiles in the world and return the results
+        ts = M.filterWithKey (\k _ -> k `elem` reachable) (tiles world)
 
 -- Return true the distance in the x and y direction that the passed point is
 -- in the wall in the passed world. Nothing indicates the point is not in the
@@ -246,12 +359,15 @@ blockToPicTiles (bW, bH) tm (xB, yB) =
         tileToFB :: (Int, Int) -> (Float, Float)
         tileToFB (x, y) = ( (fromIntegral x) * tileWidth
                           , (fromIntegral y) * tileHeight)
-        solid :: M.Map (Int, Int) Tile -> (Int, Int) -> Bool
-        solid m p = case M.lookup p m of
-                     Nothing -> error $ "[ERROR] blockToPicTiles: tile not "
-                                        ++ "found in world " ++ (show p)
-                     Just Empty -> False
-                     Just Solid -> True
+
+
+-- Return true if the passed coordinate in the passed map is solid
+solid :: M.Map (Int, Int) Tile -> (Int, Int) -> Bool
+solid m p = case M.lookup p m of
+             Nothing -> error $ "[ERROR] blockToPicTiles: tile not "
+                                ++ "found in world " ++ (show p)
+             Just Empty -> False
+             Just Solid -> True
           
 
 -- Render a title given its x and y position. The lower-left corner
@@ -394,7 +510,7 @@ worldToPicture fbH (wW, wH) world = picTrans <> player
         pic = blocksToPic2 (fbBlockWidth, fbBlockHeight) 
                            occludedBlocks
         -- Draw a circle for the player
-        player = Gloss.circle ((fromIntegral fbBlockWidth) * (0.1))
+        player = Gloss.circle ((fromIntegral fbBlockWidth) * (0.03))
         -- Translate the picture so it is centered on the player. This requires
         -- translating the players current position into framebuffer
         -- cooridnates and then translating
@@ -406,3 +522,153 @@ worldToPicture fbH (wW, wH) world = picTrans <> player
                                    (realToFrac . negate $ plFBY)
                                    pic
 
+-- Given a point with a width and height and a tile with a width and
+-- height, move the point so it is no longer clipping with the tile
+movePointClip :: (Double, Double) -> Double -> Double
+                 -> (Double, Double, Double, Double)
+                 -> (Double, Double)
+movePointClip p@(xp, yp) pW pH (xt, yt, tW, tH) = (xp + xFix, yp + yFix)
+  where tPoint = (xt, yt)
+        xFix = (clipDistEast p pW pH tPoint tW tH)
+               + clipDistWest p pW pH tPoint tW tH
+        yFix = (clipDistNorth p pW pH tPoint tW tH)
+               + clipDistSouth p pW pH tPoint tW tH
+
+-- Same as movePointClip but matches the signature of fold
+movePointClip2 :: (Double, Double, Double, Double) -- solid tile  rectangle
+                  -> (Double, Double, Double, Double) -- target rectangle
+                  -> (Double, Double, Double, Double) -- Updated target 
+movePointClip2 t (px, py, pW, pH) = (corPX, corPY, pW, pH)
+    where (corPX, corPY) = movePointClip (px, py) pW pH t
+
+-- Same as movePointClip but fixes based on a list of tiles. The tiles are
+-- fixed in the order they are in the list 
+movePointsClip :: (Double, Double, Double, Double)    -- "Player" rectangle 
+                  -> [(Double, Double, Double, Double)] -- Tile rectagle
+                  -> (Double, Double, Double, Double) 
+movePointsClip p [] = p
+movePointsClip p ts = foldr movePointClip2 p ts
+
+-- Given the center of two rectangs along with the width and height of the
+-- rectangles return the distance that the north edge of the first needs to
+-- be moved in the x and y directions to not be inside the second.
+clipDistNorth :: (Double, Double) -> Double -> Double
+                -> (Double, Double) -> Double -> Double
+                -> Double
+clipDistNorth t@(_, yT) tW tH c@(_, yC) cW cH = yFix
+  where (neClip, seClip, swClip, nwClip) = clipPoints t tW tH c cW cH
+        yDist = abs (yT - yC)
+        yFix = if (neClip || nwClip)
+                  && (not seClip)
+                  && (not swClip)
+                then yDist - (0.5 * tH) - (0.5 * cH)
+                else 0
+
+clipDistSouth :: (Double, Double) -> Double -> Double
+                -> (Double, Double) -> Double -> Double
+                -> Double
+clipDistSouth t@(_, yT) tW tH c@(_, yC) cW cH = yFix
+  where (neClip, seClip, swClip, nwClip) = clipPoints t tW tH c cW cH
+        yDist = abs (yT - yC)
+        yFix = if (seClip || swClip)
+                  && (not neClip)
+                  && (not nwClip)
+                then negate $ yDist - (0.5 * tH) - (0.5 * cH)
+                else 0
+
+clipDistEast :: (Double, Double) -> Double -> Double
+                -> (Double, Double) -> Double -> Double
+                -> Double
+clipDistEast t@(xT, _) tW tH c@(xC, _) cW cH = xFix
+  where (neClip, seClip, swClip, nwClip) = clipPoints t tW tH c cW cH
+        xDist = abs (xT - xC)
+        xFix = if (neClip || seClip)
+                  && (not nwClip)
+                  && (not swClip)
+                then xDist - (0.5 * tW) - (0.5 * cW)
+                else 0
+
+clipDistWest :: (Double, Double) -> Double -> Double
+                -> (Double, Double) -> Double -> Double
+                -> Double
+clipDistWest t@(xT, _) tW tH c@(xC, _) cW cH = xFix
+  where (neClip, seClip, swClip, nwClip) = clipPoints t tW tH c cW cH
+        xDist = abs (xT - xC)
+        xFix = if (nwClip || swClip)
+                  && (not neClip)
+                  && (not seClip)
+                then negate $ xDist - (0.5 * tW) - (0.5 * cW)
+                else 0
+
+-- Return if the NE, SE, SW, NW corners of the first shape are inside in
+-- the second shape
+clipPoints :: (Double, Double) -> Double -> Double
+                -> (Double, Double) -> Double -> Double
+                -> (Bool, Bool, Bool, Bool)
+clipPoints (xT, yT) tW tH c cW cH = (neClip, seClip, swClip, nwClip)
+  where halfWidth = 0.5 * tW 
+        halfHeight = 0.5 * tH
+        tNEPoint = (xT + halfWidth
+                    , yT + halfHeight)
+        tSEPoint = (xT + halfWidth 
+                    , yT -  halfHeight)
+        tSWPoint = (xT - halfWidth 
+                    , yT -  halfHeight)
+        tNWPoint = (xT - halfWidth 
+                    , yT +  halfHeight)
+        --northEdge = (tNWPoint, tNEPoint)
+        --southEdge = (tSWPoint, tSEPoint)
+        --eastEdge = (tSEPoint, tNEPoint)
+        --westEdge = (tSWPoint, tNWPoint)
+        neClip = pointInRect tNEPoint c cW cH
+        seClip = pointInRect tSEPoint c cW cH 
+        swClip = pointInRect tSWPoint c cW cH
+        nwClip = pointInRect tNWPoint c cW cH
+
+pointInRect :: (Double, Double)
+               -> (Double, Double) -> Double -> Double
+               -> Bool
+pointInRect (xp, yp) c w h = (xp >= xMin)
+                                        && (xp <= xMax)
+                                        && (yp >= yMin)
+                                        && (yp <= yMax)
+  where (nep, sep, swp, nwp) = rectCorners c w h
+        xs = [fst nep, fst sep, fst swp, fst nwp]
+        ys = [snd nep, snd sep, snd swp, snd nwp]
+        xMin = minimum xs
+        xMax = maximum xs
+        yMin = minimum ys
+        yMax = maximum ys
+
+rectCorners :: (Double, Double) -> Double -> Double
+               -> ((Double, Double)     -- NE corner
+                   , (Double, Double)   -- SE corner
+                   , (Double, Double)   -- SW corner
+                   , (Double, Double))  -- NW Corner
+rectCorners (x, y) w h = (nePoint, sePoint, swPoint, nwPoint)
+  where halfWidth = 0.5 * w
+        halfHeight = 0.5 * h
+        nePoint = (x + halfWidth
+                    , y + halfHeight)
+        sePoint = (x + halfWidth 
+                    , y -  halfHeight)
+        swPoint = (x - halfWidth 
+                    , y -  halfHeight)
+        nwPoint = (x - halfWidth 
+                    , y +  halfHeight)
+
+--doubleDist :: (Double, Double) -> (Double, Double) -> Double
+--doubleDist (x1, y1) (x2, y2) = sqrt $ xsq + ysq
+--  where xsq = (x2 - x1) ** 2
+--        ysq = (y2 - y2) ** 2
+
+-- Return true if the passed edge is inside the passed rectangle defined by
+-- a center point and a width and height
+--edgeInRectangle :: ((Double, Double), (Double, Double))
+--                   -> (Double, Double) -> Double -> Double
+--                   -> Bool
+--edgeInRectagle (ep1, ep2) (rX, rY) rW rH = 
+--    if (rX + rW) 
+
+-- Return the direction of the first point relative to the second
+--relativeDir :: (Double, Double) -> (Double,  Double) -> CardDir
