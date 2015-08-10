@@ -41,8 +41,16 @@ tilesPerBlock :: Int
 tilesPerBlock = 10
 
 -- The entire world is made up of tiles which are either solid or empty
-data Tile = Solid | Empty
-          deriving Show
+--data Tile = Solid | Empty
+--          deriving Show
+
+-- A tile can be clipped on in any of the cardinal directions. If it cannot
+-- be clipped in a certain direction, then it can be passed through in
+-- that direction
+data Tile = Tile { clipWest :: Bool
+                 , clipEast :: Bool
+                 , clipNorth :: Bool
+                 , clipSouth :: Bool }
 
 data World = World { 
                      -- The  layout of all the blocks making up the level
@@ -56,9 +64,17 @@ data World = World {
                    , tiles :: M.Map (Int, Int) Tile
                    }
 
-isSolid :: Tile -> Bool
-isSolid Solid = True
-isSolid Empty = False
+tileIsEmpty :: Tile -> Bool
+tileIsEmpty (Tile False False False False) = True
+tileIsEmpty _ = False
+
+-- A tile which can clip on all slides
+solidTile :: Tile
+solidTile = Tile True True True True
+
+-- A tile which can be passed through on all slides
+emptyTile :: Tile
+emptyTile = Tile False False False False
 
 -- Update the position of the player, scootching if it is colliding with
 -- something
@@ -81,15 +97,23 @@ updatePlayerPosTile world w h p@(x,y) =
     case M.size solidOverlap of
       0 -> world { playerPos = p }
       _ -> world { playerPos = (xFixed, yFixed) }
-            where ks = M.keys solidOverlap
+            where ts :: [((Int, Int), Tile)]
+                  ts = M.toList solidOverlap
                   -- The tiles overlapping with the point in world coordinates
-                  clipTiles :: [(Double, Double, Double, Double)]
-                  clipTiles = map tileToWorldRect ks
+                  clipTiles :: [((Double, Double, Double, Double), Tile)]
+                  clipTiles = map tileToWorldRect2 ts
                   -- Fixed pos returns the width and height of the player
                   -- along with its location
                   (xFixed, yFixed, _, _) = movePointsClip (x, y, w, h) clipTiles
   where -- Get all the tiles overlapping with the point
-        solidOverlap = M.filter isSolid (onTiles world w h p)
+        solidOverlap = M.filter (not . tileIsEmpty) (onTiles world w h p)
+
+-- Same as tileWorldToRect but preserves the second item in the
+-- pair
+tileToWorldRect2 :: ((Int, Int), a) 
+                    -> ((Double, Double, Double, Double), a)
+tileToWorldRect2 (p, sn) = ((x, y, w, h), sn)
+  where (x, y, w, h) = tileToWorldRect p
 
 -- Given the location of a tile in tile coordinates, return its
 -- center, width, and height in world coordinates
@@ -280,25 +304,34 @@ tilesFromBlock :: Int -> Int -> Block -> M.Map (Int, Int) Tile
 -- Note: M.union perfers items on the left. So, any items in the wall map is
 -- preserved while empty tiles are overwritten
 tilesFromBlock xOff yOff b = M.union wallTiles es
-  where northWall = if (not . northOpen $ b)
+  where northWallPts = if (not . northOpen $ b)
                       then getWallPoints xOff yOff North tilesPerBlock
                       else []
-        southWall = if (not . southOpen $ b)
+        southWallPts = if (not . southOpen $ b)
                       then getWallPoints xOff yOff South tilesPerBlock
                       else []
-        eastWall = if (not . eastOpen $ b)
+        eastWallPts = if (not . eastOpen $ b)
                       then getWallPoints xOff yOff East tilesPerBlock
                       else []
-        westWall = if (not . westOpen $ b)
+        westWallPts = if (not . westOpen $ b)
                       then getWallPoints xOff yOff West tilesPerBlock
                       else []
-        wallPoints = northWall <> southWall <> eastWall <> westWall
-        wallTiles = M.fromList $ zip wallPoints (repeat Solid)
+        -- A tile creating a northern wall cannot be passed on the south
+        northTile = emptyTile { clipSouth = True }
+        southTile = emptyTile { clipNorth = True }
+        eastTile = emptyTile { clipWest = True }
+        westTile = emptyTile { clipEast = True }
+        northTiles = zip northWallPts (repeat northTile)
+        southTiles = zip southWallPts (repeat southTile)
+        eastTiles = zip eastWallPts (repeat eastTile)
+        westTiles = zip westWallPts (repeat westTile)
+        wallTiles = M.fromList $ northTiles <> southTiles <> eastTiles 
+                                 <> westTiles 
         es = emptyTiles xOff yOff
 
 -- Given x and y offsets, create a map of all empty tiles
 emptyTiles :: Int -> Int -> M.Map (Int, Int) Tile
-emptyTiles xOff yOff = M.fromList (zip ts (repeat Empty))
+emptyTiles xOff yOff = M.fromList (zip ts (repeat emptyTile))
     where ts = do
                   x <- [xOff .. xOff + tilesPerBlock]
                   y <- [yOff .. yOff + tilesPerBlock]
@@ -355,19 +388,18 @@ blockToPicTiles (bW, bH) tm (xB, yB) =
                         x <- take tilesPerBlock $ [xT..]
                         y <- take tilesPerBlock $ [yT..]
                         return (x, y)
-        solidCoords = filter (solid tm) tileCoords
+        solidCoords = filter (mayClip tm) tileCoords
         tileToFB :: (Int, Int) -> (Float, Float)
         tileToFB (x, y) = ( (fromIntegral x) * tileWidth
                           , (fromIntegral y) * tileHeight)
 
 
 -- Return true if the passed coordinate in the passed map is solid
-solid :: M.Map (Int, Int) Tile -> (Int, Int) -> Bool
-solid m p = case M.lookup p m of
+mayClip :: M.Map (Int, Int) Tile -> (Int, Int) -> Bool
+mayClip m p = case M.lookup p m of
              Nothing -> error $ "[ERROR] blockToPicTiles: tile not "
                                 ++ "found in world " ++ (show p)
-             Just Empty -> False
-             Just Solid -> True
+             Just t -> not $ tileIsEmpty t
           
 
 -- Render a title given its x and y position. The lower-left corner
@@ -524,27 +556,31 @@ worldToPicture fbH (wW, wH) world = picTrans <> player
 
 -- Given a point with a width and height and a tile with a width and
 -- height, move the point so it is no longer clipping with the tile
-movePointClip :: (Double, Double) -> Double -> Double
+movePointClip :: Tile -> (Double, Double) -> Double -> Double
                  -> (Double, Double, Double, Double)
                  -> (Double, Double)
-movePointClip p@(xp, yp) pW pH (xt, yt, tW, tH) = (xp + xFix, yp + yFix)
+movePointClip tile p@(xp, yp) pW pH (xt, yt, tW, tH) = (xp + xFix, yp + yFix)
   where tPoint = (xt, yt)
-        xFix = (clipDistEast p pW pH tPoint tW tH)
-               + clipDistWest p pW pH tPoint tW tH
-        yFix = (clipDistNorth p pW pH tPoint tW tH)
-               + clipDistSouth p pW pH tPoint tW tH
+        xFix = if (clipEast tile) || (clipWest tile) 
+                then (clipDistEast p pW pH tPoint tW tH)
+                     + clipDistWest p pW pH tPoint tW tH
+                else 0
+        yFix = if (clipNorth tile) || (clipSouth tile)
+                then (clipDistNorth p pW pH tPoint tW tH)
+                     + clipDistSouth p pW pH tPoint tW tH
+                else 0
 
 -- Same as movePointClip but matches the signature of fold
-movePointClip2 :: (Double, Double, Double, Double) -- solid tile  rectangle
+movePointClip2 :: ((Double, Double, Double, Double), Tile) -- solid tile  rectangle
                   -> (Double, Double, Double, Double) -- target rectangle
                   -> (Double, Double, Double, Double) -- Updated target 
-movePointClip2 t (px, py, pW, pH) = (corPX, corPY, pW, pH)
-    where (corPX, corPY) = movePointClip (px, py) pW pH t
+movePointClip2 (t, tile) (px, py, pW, pH) = (corPX, corPY, pW, pH)
+    where (corPX, corPY) = movePointClip tile (px, py) pW pH t
 
 -- Same as movePointClip but fixes based on a list of tiles. The tiles are
 -- fixed in the order they are in the list 
 movePointsClip :: (Double, Double, Double, Double)    -- "Player" rectangle 
-                  -> [(Double, Double, Double, Double)] -- Tile rectagle
+                  -> [((Double, Double, Double, Double), Tile)] -- Tile rectagle
                   -> (Double, Double, Double, Double) 
 movePointsClip p [] = p
 movePointsClip p ts = foldr movePointClip2 p ts
